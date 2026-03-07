@@ -21,7 +21,7 @@
     "test:read-pin": "npx ts-node -P electron-tsconfig.json test_read_pin.ts",
     "preview": "vite preview",
     "compile:electron": "npx -p typescript tsc --project electron-tsconfig.json",
-    "build:skill:web-search": "npx tsc -p SKILLs/web-search/tsconfig.json",
+    "build:skill:web-search": "npm --prefix SKILLs/web-search install && npx tsc -p SKILLs/web-search/tsconfig.json",
     "start:electron": "cross-env NODE_ENV=development ELECTRON_START_URL=http://localhost:5175 electron .",
     "electron:dev": "npx rimraf dist-electron && npm run compile:electron && concurrently \"vite --port 5175\" \"wait-on -v -t 120000 -d 10000 http://localhost:5175 && npm run start:electron\"",
     "postinstall": "patch-package && electron-builder install-app-deps",
