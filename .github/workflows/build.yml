@@ -59,13 +59,30 @@ jobs:
         if: runner.os == 'Windows'
         run: node scripts/setup-mingit.js
 
+      # 非 Windows: 创建 mingit 占位目录，避免 electron-builder 报"file source doesn't exist"警告
+      - name: Create mingit placeholder (non-Windows)
+        if: runner.os != 'Windows'
+        run: mkdir -p resources/mingit
+
+      # 配置代码签名环境变量
+      # 当 CSC_LINK Secret 未配置时，禁用自动签名，避免 electron-builder 将空字符串解析为项目目录路径
+      - name: Configure code signing
+        shell: bash
+        run: |
+          if [ -n "${SECRET_CSC_LINK}" ]; then
+            echo "CSC_LINK=${SECRET_CSC_LINK}" >> "$GITHUB_ENV"
+            echo "CSC_KEY_PASSWORD=${SECRET_CSC_KEY_PASSWORD}" >> "$GITHUB_ENV"
+            echo "CSC_IDENTITY_AUTO_DISCOVERY=true" >> "$GITHUB_ENV"
+          else
+            echo "CSC_IDENTITY_AUTO_DISCOVERY=false" >> "$GITHUB_ENV"
+          fi
+        env:
+          SECRET_CSC_LINK: ${{ secrets.CSC_LINK }}
+          SECRET_CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+
       - name: Build and publish Electron app
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # 跳过 macOS 代码签名（如需签名，在仓库 Secrets 中配置以下三个变量）
-          CSC_IDENTITY_AUTO_DISCOVERY: ${{ secrets.CSC_LINK != '' && 'true' || 'false' }}
-          CSC_LINK: ${{ secrets.CSC_LINK }}
-          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
           # macOS 公证（可选，未配置时 notarize.js 会自动跳过）
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
