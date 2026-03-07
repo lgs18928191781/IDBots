@@ -1,39 +1,85 @@
-name: Build/release
+name: Build/Release
 
 on:
   push:
     branches: [main]
     tags:
-      - 'v*'  # 当推送版本标签时触发发布
+      - 'v*'
+  workflow_dispatch:  # 允许手动触发
 
 jobs:
   release:
     runs-on: ${{ matrix.os }}
-    
+
     strategy:
+      fail-fast: false  # 一个平台失败不影响其他平台继续构建
       matrix:
-        os: [macos-latest, ubuntu-latest, windows-latest]  # 同时构建三个平台
+        include:
+          - os: macos-latest
+            build_args: --mac
+          - os: ubuntu-latest
+            build_args: --linux
+          - os: windows-latest
+            build_args: --win --x64
 
     steps:
+      # Windows: 必须在 checkout 之前启用长路径，否则 git 操作可能被取消
+      - name: Enable Git long paths (Windows)
+        if: runner.os == 'Windows'
+        run: git config --global core.longpaths true
+
       - name: Check out Git repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4  # v4 修复了 Windows 上 submodule 处理的 sh 兼容性问题
+        with:
+          submodules: false
 
       - name: Install Node.js
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
         with:
           node-version: 24
-          cache: 'npm'
+          # 注意：只有在 package-lock.json 已提交到仓库时才能启用 cache: 'npm'
+          # cache: 'npm'
 
       - name: Install dependencies
-        run: npm ci
+        # 使用 npm install 而不是 npm ci，避免强依赖 lock 文件
+        # 如果已提交 package-lock.json，可改回 npm ci（更快更确定性）
+        run: npm install
 
-      - name: Build/release Electron app
-        uses: samuelmeuli/action-electron-builder@v1
+      - name: Build renderer (Vite)
+        run: npm run build
+
+      - name: Compile Electron main process
+        run: npm run compile:electron
+
+      - name: Build web-search skill
+        run: npm run build:skill:web-search
+
+      # Windows: 下载捆绑的 PortableGit（资源目录需要存在）
+      - name: Setup MinGit (Windows)
+        if: runner.os == 'Windows'
+        run: node scripts/setup-mingit.js
+
+      - name: Build and publish Electron app
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # 跳过 macOS 代码签名（如需签名，在仓库 Secrets 中配置以下三个变量）
+          CSC_IDENTITY_AUTO_DISCOVERY: ${{ secrets.CSC_LINK != '' && 'true' || 'false' }}
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          # macOS 公证（可选，未配置时 notarize.js 会自动跳过）
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: >
+          npx electron-builder ${{ matrix.build_args }}
+          --publish ${{ startsWith(github.ref, 'refs/tags/v') && 'always' || 'never' }}
+
+      # 无论构建成功与否，上传产物供调试
+      - name: Upload build artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
         with:
-          github_token: ${{ secrets.github_token }}
-          # 如果是tag推送，则发布到GitHub Releases
-          release: ${{ startsWith(github.ref, 'refs/tags/v') }}
-          # 如果有预构建脚本
-          build_script_name: 'build'
-          # 传递给electron-builder的参数
-          args: '--publish always'
+          name: dist-${{ matrix.os }}
+          path: release/
+          if-no-files-found: ignore
+          retention-days: 7
