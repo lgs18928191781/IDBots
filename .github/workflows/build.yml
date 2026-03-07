@@ -1,0 +1,39 @@
+name: Build/release
+
+on:
+  push:
+    branches: [main]
+    tags:
+      - 'v*'  # 当推送版本标签时触发发布
+
+jobs:
+  release:
+    runs-on: ${{ matrix.os }}
+    
+    strategy:
+      matrix:
+        os: [macos-latest, ubuntu-latest, windows-latest]  # 同时构建三个平台
+
+    steps:
+      - name: Check out Git repository
+        uses: actions/checkout@v3
+
+      - name: Install Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: 24
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build/release Electron app
+        uses: samuelmeuli/action-electron-builder@v1
+        with:
+          github_token: ${{ secrets.github_token }}
+          # 如果是tag推送，则发布到GitHub Releases
+          release: ${{ startsWith(github.ref, 'refs/tags/v') }}
+          # 如果有预构建脚本
+          build_script_name: 'build'
+          # 传递给electron-builder的参数
+          args: '--publish always'
